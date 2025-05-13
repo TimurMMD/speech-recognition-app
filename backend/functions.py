@@ -2,6 +2,8 @@ import os
 import pandas as pd
 from pydub import AudioSegment
 from tqdm import tqdm
+import shutil
+from pydub.silence import detect_nonsilent
 
 def audio_dataset(url_data, url_mp3, url_wav, drive_output_folder):
     """
@@ -68,4 +70,108 @@ def audio_dataset(url_data, url_mp3, url_wav, drive_output_folder):
 
 
 
+def preprocess_language_dataset(
+    transcript_path,
+    wav_source_dir,
+    wav_target_dir,
+    sample_rate=16000,
+    min_duration_ms=500,
+    max_duration_ms=15000,
+    file_extension='.wav'
+):
+    """
+    Preprocesses .wav files based on transcript order:
+    - Converts sample rate, mono channel
+    - Trims silence
+    - Normalizes loudness
+    - Filters by duration
+    - Saves processed files in new folder
+    
+    Parameters:
+        transcript_path (str): Path to .tsv or .csv file with 'path' and 'sentence'.
+        wav_source_dir (str): Directory with original .wav files.
+        wav_target_dir (str): Directory to save processed .wav files.
+        sample_rate (int): Target audio sample rate (e.g., 16000).
+        min_duration_ms (int): Minimum duration of audio (in ms).
+        max_duration_ms (int): Maximum duration of audio (in ms).
+        file_extension (str): Audio file extension, default '.wav'.
+
+    Returns:
+        missing_list (list): Audio names from sorted list not found in source folder.
+        processed_list (list): Processed audio filenames (in order).
+    """
+    
+    # Load and sort transcript data
+    df = pd.read_csv(transcript_path, sep='\t')
+    df = df[['path', 'sentence']]
+    sorted_list = sorted(df['path'].tolist())
+
+    os.makedirs(wav_target_dir, exist_ok=True)
+
+    missing_list = []
+    processed_list = []
+
+    print("🔄 Starting preprocessing...\n")
+
+    for filename in tqdm(sorted_list, desc="Processing audio"):
+        original_wav = filename.replace(".mp3", file_extension)
+        source_path = os.path.join(wav_source_dir, original_wav)
+
+        if not os.path.exists(source_path):
+            missing_list.append(filename)
+            continue
+
+        try:
+            audio = AudioSegment.from_wav(source_path)
+
+            # Normalize volume
+            audio = match_target_amplitude(audio, -20.0)
+
+            # Convert to mono and set sample rate
+            audio = audio.set_channels(1).set_frame_rate(sample_rate)
+
+            # Trim silence from beginning and end
+            audio = trim_silence(audio)
+
+            # Filter out too short or too long files
+            if len(audio) < min_duration_ms or len(audio) > max_duration_ms:
+                print(f"⏩ Skipped (duration): {filename}")
+                continue
+
+            # Save preprocessed file
+            target_path = os.path.join(wav_target_dir, original_wav)
+            audio.export(target_path, format="wav")
+            processed_list.append(original_wav)
+
+        except Exception as e:
+            print(f"❌ Error with {filename}: {e}")
+            missing_list.append(filename)
+
+    print(f"\n✅ Preprocessing done. {len(processed_list)} files saved.")
+    print(f"⚠️ Missing or skipped: {len(missing_list)}")
+
+    return missing_list, processed_list
+
+
+def trim_silence(audio, silence_thresh=-40, padding=100):
+    """
+    Trims silence from beginning and end of the audio.
+    Returns: trimmed AudioSegment
+    """
+    non_silents = detect_nonsilent(audio, min_silence_len=200, silence_thresh=silence_thresh)
+    if not non_silents:
+        return audio  # No nonsilent parts detected, return as-is
+
+    start_trim = max(0, non_silents[0][0] - padding)
+    end_trim = min(len(audio), non_silents[-1][1] + padding)
+
+    return audio[start_trim:end_trim]
+
+
+def match_target_amplitude(sound, target_dBFS):
+    """
+    Normalize volume to target dBFS.
+    """
+    change_in_dBFS = target_dBFS - sound.dBFS
+    return sound.apply_gain(change_in_dBFS)
 
