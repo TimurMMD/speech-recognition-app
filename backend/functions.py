@@ -4,6 +4,7 @@ from pydub import AudioSegment
 from tqdm import tqdm
 import shutil
 from pydub.silence import detect_nonsilent
+from sklearn.model_selection import train_test_split
 
 def audio_dataset(url_data, url_mp3, url_wav, drive_output_folder):
     """
@@ -175,3 +176,93 @@ def match_target_amplitude(sound, target_dBFS):
     change_in_dBFS = target_dBFS - sound.dBFS
     return sound.apply_gain(change_in_dBFS)
 
+
+
+
+
+
+def split_and_organize_dataset(transcript_path, audio_folder, output_folder, test_size=0.1, valid_size=0.1, seed=42):
+    """
+    Splits a dataset of audio files and corresponding transcriptions into training, validation, and test subsets,
+    and organizes them into separate folders.
+
+    Parameters:
+    -----------
+    transcript_path : str
+        Path to the CSV/TSV transcript file. The file must contain at least two columns: 'path' (audio filename) and 'sentence' (transcription).
+    
+    audio_folder : str
+        Path to the folder containing the preprocessed .wav audio files.
+    
+    output_folder : str
+        Path to the destination folder where the split datasets will be saved. It will create 'train', 'valid', and 'test' subfolders.
+    
+    test_size : float, optional (default=0.1)
+        Proportion of the dataset to include in the test split (e.g., 0.1 means 10%).
+
+    valid_size : float, optional (default=0.1)
+        Proportion of the dataset to include in the validation split *from the remaining training data* after test split.
+
+    seed : int, optional (default=42)
+        Random seed for reproducibility of the splits.
+
+    Behavior:
+    ---------
+    - Reads and filters the transcript data to include only .wav files.
+    - Splits the data into train, validation, and test sets using `sklearn.model_selection.train_test_split`.
+    - Copies the corresponding audio files into `train/`, `valid/`, and `test/` subfolders inside the output folder.
+    - Saves the transcript files (`*_transcript.csv`) in the output folder for each split.
+
+    Output:
+    -------
+    The function creates the following inside `output_folder`:
+        - train/: audio files for training
+        - valid/: audio files for validation
+        - test/: audio files for testing
+        - train_transcript.csv: transcript for training
+        - valid_transcript.csv: transcript for validation
+        - test_transcript.csv: transcript for testing
+
+    Example:
+    --------
+    split_and_organize_dataset(
+        transcript_path="data/english_cleaned.tsv",
+        audio_folder="data/english/preprocessed",
+        output_folder="data/english/split"
+    )
+    """
+    # Load transcript file
+    df = pd.read_csv(transcript_path, sep='\t' if transcript_path.endswith('.tsv') else ",")
+
+    # Convert .mp3 to .wav in the 'path' column
+    df['path'] = df['path'].apply(lambda x: x.replace('.mp3', '.wav'))
+
+    # Ensure only .wav files are included (in case there are other extensions)
+    df = df[df['path'].str.endswith('.wav')].reset_index(drop=True)
+
+    # First split into train+valid and test
+    train_valid_df, test_df = train_test_split(df, test_size=test_size, random_state=seed)
+
+    # Now split train and valid
+    train_df, valid_df = train_test_split(train_valid_df, test_size=valid_size / (1 - test_size), random_state=seed)
+
+    # Helper function to copy files
+    def copy_files(subset_df, subset_name):
+        subset_folder = os.path.join(output_folder, subset_name)
+        os.makedirs(subset_folder, exist_ok=True)
+        
+        for _, row in subset_df.iterrows():
+            src_path = os.path.join(audio_folder, row['path'])
+            dst_path = os.path.join(subset_folder, row['path'])
+            if os.path.exists(src_path):
+                shutil.copy(src_path, dst_path)
+        
+        # Save transcript subset
+        subset_df.to_csv(os.path.join(output_folder, f"{subset_name}_transcript.csv"), index=False)
+
+    # Copy and save each subset
+    copy_files(train_df, "train")
+    copy_files(valid_df, "valid")
+    copy_files(test_df, "test")
+
+    print("✅ Dataset successfully split into train, valid, and test sets.")
