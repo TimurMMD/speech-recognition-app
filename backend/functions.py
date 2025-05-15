@@ -205,6 +205,38 @@ def check_audio_order(sorted_list, preprocessed_folder):
 
 
 
+
+def find_missing_files(transcript_path, audio_folder):
+    """
+    Check which files in transcript are missing in the audio folder.
+
+    Parameters:
+        transcript_df (pd.DataFrame): The DataFrame with at least a 'path' column (.mp3 names).
+        audio_folder (str): Path to the folder containing preprocessed .wav files.
+        return_filtered_df (bool): Whether to return a cleaned DataFrame without missing files.
+
+    Returns:
+        missing_list (list): List of missing .mp3 filenames.
+        [optional] filtered_df (DataFrame): Transcript without missing entries.
+    """
+    sorted_list = transcript(transcript_path)
+    missing_list = []
+    
+    # Convert to .wav and check existence
+    for file in tqdm(sorted_list, desc="🔍 Checking missing files"):
+        wav_name = file.replace('.mp3', '.wav')
+        wav_path = os.path.join(audio_folder, wav_name)
+        if not os.path.isfile(wav_path):
+            missing_list.append(file)
+
+    print(f"\n❌ Total missing files: {len(missing_list)}")
+
+
+
+    return missing_list
+
+
+
 def split_and_organize_dataset(transcript_path, audio_folder, output_folder, test_size=0.1, valid_size=0.1, seed=42):
     """
     Splits a dataset of audio files and corresponding transcriptions into training, validation, and test subsets,
