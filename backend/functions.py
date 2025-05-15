@@ -178,6 +178,30 @@ def match_target_amplitude(sound, target_dBFS):
 
 
 
+def check_audio_order(sorted_list, preprocessed_folder):
+    # Convert .mp3 names to .wav
+    expected_order = [name.replace('.mp3', '.wav') for name in sorted_list]
+
+    # Get actual files in the folder, sorted alphabetically
+    actual_files = sorted([f for f in os.listdir(preprocessed_folder) if f.endswith('.wav')])
+
+    print(f"✅ Total expected files: {len(expected_order)}")
+    print(f"✅ Total actual files: {len(actual_files)}")
+
+    # Compare order
+    mismatches = []
+    for i, (expected, actual) in enumerate(zip(expected_order, actual_files)):
+        if expected != actual:
+            mismatches.append((i, expected, actual))
+
+    if not mismatches:
+        print("🎯 Order is correct!")
+    else:
+        print(f"⚠️ Found {len(mismatches)} mismatches:")
+        for idx, expected, actual in mismatches[:10]:  # show first 10 issues
+            print(f"{idx}: Expected {expected} → Got {actual}")
+
+    return mismatches
 
 
 
